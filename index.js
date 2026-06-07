@@ -1,255 +1,186 @@
 const mineflayer = require('mineflayer');
-const { pathfinder, Movements, goals } = require('mineflayer-pathfinder');
-const GoalFollow = goals.GoalFollow;
 const readline = require('readline');
 
-let botOptions = { 
-  host: 'mc.play-fast.ru', 
-  port: 25565, 
-  username: 'pocohoco3000', 
-  version: '1.16.5', 
-  viewDistance: 'tiny', 
-  colorsEnabled: false, 
-  concurrency: 1 
+const botOptions = {
+  host: 'mc.play-fast.ru',
+  port: 25565,
+  username: 'pocohoco3000',
+  version: '1.16.5',
+  viewDistance: 'tiny',
+  colorsEnabled: false
 };
 
-let owners = ['SvyatoslavPro123'];
-let lookTargetEntity = null, pvpInterval = null, pvpTargetEntity = null;
-let isEquipping = false, isEating = false, isToggleArmor = false;
-let rlInterface = null, globalBotInstance = null, isBotActive = false;
+const OWNER_NICK = 'SvyatoslavPro123';
+let pvpInterval = null, pvpTargetEntity = null, customCycleInterval = null, currentCycleCommand = null, cycleSeconds = 3;
+let isEquipping = false, isEating = false, isToggleArmor = false, isDeadNow = false; // 🌟 Добавили флаг смерти
 
-function showMenu() {
-  console.clear();
-  console.log('===================================================');
-  console.log('         ТЕРМИНАЛ НАСТРОЕК ПВП-ТЕРМИНАТОРА        ');
-  console.log('===================================================');
-  console.log(` Текущий Сервер (IP): \x1b[36m${botOptions.host}\x1b[0m`);
-  console.log(` Текущий Ник бота:    \x1b[32m${botOptions.username}\x1b[0m`);
-  console.log(` Владельцы бота:      \x1b[35m${owners.join(', ')}\x1b[0m`);
-  console.log('---------------------------------------------------');
-  console.log(' 1. Запустить бота на сервер');
-  console.log(' 2. Изменить НИК бота');
-  console.log(' 3. Изменить СЕРВЕР (IP-адрес)');
-  console.log(' 4. Добавить владельца');
-  console.log(' 5. Удалить владельца');
-  console.log(' 6. Выйти из программы');
-  console.log('===================================================');
-  process.stdout.write('Выберите действие: ');
-
-  if (rlInterface) rlInterface.close();
-  rlInterface = readline.createInterface({ input: process.stdin, output: process.stdout });
-
-  rlInterface.on('line', (line) => {
-    const choice = line.trim();
-    if (choice === '1') { rlInterface.close(); isBotActive = true; createBot(); }
-    else if (choice === '2') { askParameter('Введите новый НИК бота: ', (n) => { botOptions.username = n; showMenu(); }); }
-    else if (choice === '3') { askParameter('Введите новый IP сервера: ', (h) => { botOptions.host = h; showMenu(); }); }
-    else if (choice === '4') { askParameter('Введите ник НОВОГО владельца: ', (o) => { if (!owners.map(e => e.toLowerCase()).includes(o.toLowerCase())) owners.push(o); showMenu(); }); }
-    else if (choice === '5') { askParameter('Введите ник для УДАЛЕНИЯ: ', (o) => { owners = owners.filter(e => e.toLowerCase() !== o.toLowerCase()); if (owners.length === 0) owners.push('SvyatoslavPro123'); showMenu(); }); }
-    else if (choice === '6') { console.log('Выход...'); process.exit(0); }
-    else { process.stdout.write('Неверный выбор. Действие: '); }
-  });
-}
-
-function askParameter(q, cb) {
-  rlInterface.close();
-  rlInterface = readline.createInterface({ input: process.stdin, output: process.stdout });
-  rlInterface.question(q, (a) => { 
-    const v = a.trim(); 
-    if (v) { cb(v); } else { console.log('Пусто!'); setTimeout(showMenu, 1500); } 
-  });
-}
+const rl = readline.createInterface({ input: process.stdin, output: process.stdout, terminal: false });
 
 function createBot() {
-  console.log(`\n[Система] Запуск на ${botOptions.host}...`);
+  console.log('[Система] Запуск ПВП-терминатора pocohoco3000...');
   const bot = mineflayer.createBot(botOptions);
-  globalBotInstance = bot;
-  bot.loadPlugin(pathfinder);
 
-  let armorCheckInterval = null;
-  let totemCheckInterval = null;
+  rl.removeAllListeners('line');
+  rl.on('line', (line) => {
+    let text = line.trim();
+    if (text.length > 0) { bot.chat(text); console.log(`[Ты из консоли]: ${text}`); }
+  });
 
   bot.on('spawn', () => {
-    console.log(`[Система] Бот ${bot.username} успешно зашел в игровой мир!`);
-    resetAllTimers(); 
-    initTerminalInput(bot);
-
-    setTimeout(() => { if (bot.entity) bot.chat('/games'); }, 4000);
-    setTimeout(() => { 
-      if (bot.inventory && bot.inventory.items().length === 0) { 
-        bot.chat('/anarchy'); 
-        setTimeout(() => bot.chat('/anar'), 2000); 
-        setTimeout(() => bot.chat('/server anarchy'), 4000); 
-      } 
+    console.log(`[Система] Бот ${bot.username} зашел на сервер.`);
+    isDeadNow = false; // Бот живой при спавне
+    setTimeout(() => { bot.chat('/games'); }, 4000);
+    setTimeout(() => {
+      if (bot.inventory && bot.inventory.items().length === 0) {
+        bot.chat('/anarchy');
+        setTimeout(() => bot.chat('/anar'), 2000);
+        setTimeout(() => bot.chat('/server anarchy'), 4000);
+      }
     }, 10000);
-
-    if (armorCheckInterval) clearInterval(armorCheckInterval);
-    if (totemCheckInterval) clearInterval(totemCheckInterval);
-    
-    armorCheckInterval = setInterval(() => { if (isBotActive) equipBestArmor(bot); }, 4000);
-    totemCheckInterval = setInterval(() => { if (isBotActive) checkAndEquipTotem(bot); }, 2000);
   });
 
   bot.on('windowOpen', async (w) => {
     await new Promise(r => setTimeout(r, 2000));
-    try { 
-      await bot.clickWindow(23, 0, 0); 
-      console.log('[Система] Прожали Анархию через меню.'); 
-    } catch (err) { 
-      try { bot.closeWindow(w); } catch (e) {} 
-    }
+    try { await bot.clickWindow(23, 0, 0); } catch (err) { bot.closeWindow(w); }
   });
+
+  // 🌟 УМНОЕ БЕЗОПАСНОЕ ВОЗРОЖДЕНИЕ БЕЗ ТАЙМАУТОВ
+  bot.on('death', () => {
+    console.log('[Защита] Бот погиб! Ставлю цикл на паузу и возрождаюсь...');
+    isDeadNow = true; // Блокируем отправку команд в цикле, пока бот мертв
+    bot.respawn();
+    
+    // Ждем прогрузки на спавне, сбрасываем статус смерти и сразу летим на хом
+    setTimeout(() => {
+      isDeadNow = false;
+      if (currentCycleCommand) {
+        bot.chat(currentCycleCommand);
+        console.log(`[Бессмертие] Бот успешно встал и прописал: ${currentCycleCommand}`);
+      }
+    }, 2500);
+  });
+
+  setInterval(() => { equipArmor(); }, 2500);
+  setInterval(() => { checkTotem(); }, 1500);
 
   bot.on('physicTick', () => {
-    if (pvpTargetEntity && pvpTargetEntity.isValid) { 
-      bot.lookAt(pvpTargetEntity.position.offset(0, 1.6, 0)); 
-    } else if (lookTargetEntity) { 
-      bot.lookAt(lookTargetEntity.position.offset(0, 1.6, 0)); 
-    } else {
-      const ownerName = Object.keys(bot.players).find(p => owners.map(o => o.toLowerCase()).includes(p.toLowerCase()));
-      const playerEntity = bot.players[ownerName]?.entity;
-      if (playerEntity) bot.lookAt(playerEntity.position.offset(0, 1.6, 0));
-    }
+    if (pvpTargetEntity?.isValid) bot.lookAt(pvpTargetEntity.position.offset(0, 1.6, 0));
   });
 
-  function resetAllTimers() { 
-    if (pvpInterval) clearInterval(pvpInterval); 
-    if (armorCheckInterval) clearInterval(armorCheckInterval);
-    if (totemCheckInterval) clearInterval(totemCheckInterval);
-    pvpInterval = null; 
-    pvpTargetEntity = null; 
-    lookTargetEntity = null; 
-    isEquipping = false; 
-    isEating = false; 
-    isToggleArmor = false; 
-    try { bot.setControlState('jump', false); } catch (e) {} 
+  async function checkTotem() {
+    if (!bot.inventory || isEating || isEquipping || isToggleArmor || bot.inventory.items().length === 0 || isDeadNow) return;
+    if (bot.inventory.slots?.name === 'totem_of_undying') return;
+    let totem = bot.inventory.items().find(i => i && i.name === 'totem_of_undying');
+    if (!totem || totem.slot === undefined) return;
+    isToggleArmor = true;
+    try {
+      await bot.clickWindow(totem.slot, 0, 0); await new Promise(r => setTimeout(r, 350));
+      await bot.clickWindow(45, 0, 0); await new Promise(r => setTimeout(r, 350));
+      if (bot.inventory.selectedItem) await bot.clickWindow(totem.slot, 0, 0);
+    } catch (e) {}
+    isToggleArmor = false;
   }
 
-  function initTerminalInput(cBot) {
-    if (rlInterface) rlInterface.close();
-    rlInterface = readline.createInterface({ input: process.stdin, output: process.stdout });
-    rlInterface.on('line', (l) => { 
-      const t = l.trim(); 
-      if (!t) return; 
-      if (cBot && cBot.entity) { 
-        cBot.chat(t); 
-        console.log(`[Вы]: ${t}`); 
-      } else { 
-        console.log('Бот не на сервере.'); 
-      } 
-    });
+  async function equipArmor() {
+    if (!bot.inventory || isEquipping || isEating || isToggleArmor || bot.inventory.items().length === 0 || isDeadNow) return;
+    const types = ['helmet', 'chestplate', 'leggings', 'boots'];
+    for (let index = 0; index < types.length; index++) {
+      const type = types[index];
+      const items = bot.inventory.items().filter(item => {
+        if (!item || !item.name) return false;
+        let c = item.name.toLowerCase().replace(/[^a-z0-9_]/g, '');
+        if (type === 'helmet') return c.includes('helmet') || c.includes('head');
+        if (type === 'chestplate') return c.includes('chestplate') || c.includes('chest');
+        if (type === 'leggings') return c.includes('leggings') || c.includes('legs');
+        return c.includes('boots') || c.includes('feet');
+      });
+      if (items.length === 0) continue;
+      let best = items;
+      if (!best || best.slot === undefined) continue;
+      let eq = bot.inventory.slots[5 + index];
+      if (!eq || !eq.name) {
+        isEquipping = true;
+        try {
+          await bot.clickWindow(best.slot, 0, 0); await new Promise(r => setTimeout(r, 400));
+          await bot.clickWindow(5 + index, 0, 0); await new Promise(r => setTimeout(r, 400));
+        } catch (err) {}
+        isEquipping = false; return;
+      }
+    }
   }
-
-  bot.on('health', () => { checkAndEatApple(bot); });
 
   bot.on('messagestr', (msg) => {
-    const cLine = msg.trim(), lLine = cLine.toLowerCase();
-    console.log(`[Чат игры]: ${cLine}`);
-    
-    const sOwner = owners.find(o => lLine.includes(o.toLowerCase()));
-    if (!sOwner) return;
+    const clean = msg.trim();
+    const lowerLine = clean.toLowerCase();
+    console.log(`[Чат игры]: ${clean}`);
 
-    if (lLine.includes('телепорт') || lLine.includes('tpa') || lLine.includes('просит')) { 
-      setTimeout(() => { if (bot.entity) bot.chat('/tpaccept'); }, 1000); 
-      return; 
+    if (lowerLine.includes(OWNER_NICK.toLowerCase()) && (lowerLine.includes('телепорт') || lowerLine.includes('tpa') || lowerLine.includes('просит'))) {
+      setTimeout(() => bot.chat('/tpaccept'), 1000); 
+      return;
     }
 
-    const oPos = lLine.indexOf(sOwner.toLowerCase()), cmdZone = cLine.substring(oPos).toLowerCase();
+    if (!lowerLine.includes(OWNER_NICK.toLowerCase()) || !lowerLine.includes('*')) return;
 
-    if (cmdZone.includes('*follow')) {
-      resetAllTimers(); 
-      const idx = cmdZone.indexOf('*follow'), tNick = cmdZone.substring(idx + 8).trim(); 
-      if (!tNick) return;
+    if (lowerLine.includes('*tp')) {
+      if (pvpInterval) clearInterval(pvpInterval);
+      if (customCycleInterval) clearInterval(customCycleInterval);
+      pvpInterval = null; customCycleInterval = null; currentCycleCommand = null; pvpTargetEntity = null;
+      bot.chat(`/tpa ${OWNER_NICK}`);
+      return;
+    }
+
+    if (lowerLine.includes('*cycle')) {
+      if (customCycleInterval) clearInterval(customCycleInterval);
       
-      const actName = Object.keys(bot.players).find(p => p.toLowerCase() === tNick.toLowerCase());
-      const tEnt = bot.players[actName]?.entity; 
-      if (!tEnt) { bot.chat(`Не вижу ${tNick}!`); return; }
+      const match = clean.match(/\*cycle\s+(\d+)\s+(.+)$/i);
+      if (!match) {
+        bot.chat('Ошибка! Используй: *cycle 3 /home d');
+        return;
+      }
 
-      const defaultMove = new Movements(bot, require('minecraft-data')(bot.version));
-      defaultMove.canDig = false; 
-      defaultMove.allowParkour = true;
-      bot.pathfinder.setMovements(defaultMove); 
-      bot.pathfinder.setGoal(new GoalFollow(tEnt, 1), true);
-      lookTargetEntity = tEnt; 
-      bot.chat(`Иду за ${actName}!`);
+      cycleSeconds = parseInt(match[1]);
+      let targetCmd = match[2].trim(); 
+
+      currentCycleCommand = targetCmd;
+      bot.chat(`Цикл "${targetCmd}" каждые ${cycleSeconds} сек.`); 
+      bot.chat(targetCmd);
+      
+      // 🌟 Цикл проверяет флаг isDeadNow: если бот мертв, он пропустит тик спама, защищаясь от вылета
+      customCycleInterval = setInterval(() => { 
+        if (!isDeadNow) bot.chat(targetCmd); 
+      }, cycleSeconds * 1000);
+      return;
     }
 
-    if (cmdZone.includes('*tp')) { 
-      resetAllTimers(); 
-      bot.pathfinder.setGoal(null); 
-      bot.chat(`/tpa ${sOwner}`); 
+    if (lowerLine.includes('*kill')) {
+      if (pvpInterval) clearInterval(pvpInterval);
+      const cmdIndex = lowerLine.indexOf('*kill');
+      let raw = clean.substring(cmdIndex + 5).trim(); 
+      if (!raw) return;
+      let act = Object.keys(bot.players).find(p => p.toLowerCase() === raw.toLowerCase());
+      pvpTargetEntity = bot.players[act]?.entity;
+      if (!pvpTargetEntity) { bot.chat(`Я не вижу цель ${raw}!`); return; }
+      bot.chat(`Атакую игрока ${act} критами!`);
+      pvpInterval = setInterval(() => {
+        if (!pvpTargetEntity?.isValid || isDeadNow) { clearInterval(pvpInterval); pvpInterval = null; return; }
+        if (bot.entity && bot.entity.position.distanceTo(pvpTargetEntity.position) <= 3.8) {
+          bot.setControlState('jump', true);
+          setTimeout(() => { bot.setControlState('jump', false); bot.attack(pvpTargetEntity); bot.swingArm(); }, 150);
+        }
+      }, 650);
+      return;
     }
 
-    if (cmdZone.includes('*kill')) {
-      resetAllTimers(); 
-      bot.pathfinder.setGoal(null); 
-      const idx = cmdZone.indexOf('*kill'), tNick = cmdZone.substring(idx + 5).trim(); 
-      if (!tNick) return;
-
-      const actName = Object.keys(bot.players).find(p => p.toLowerCase() === tNick.toLowerCase());
-      pvpTargetEntity = bot.players[actName]?.entity; 
-      if (!pvpTargetEntity) { bot.chat(`Не вижу ${tNick}!`); return; }
-
-      equipBestSwordFromHotbar(bot); 
-      bot.chat(`Атакую ${actName}!`);
-
-      const defaultMove = new Movements(bot, require('minecraft-data')(bot.version));
-      bot.pathfinder.setMovements(defaultMove); 
-      bot.pathfinder.setGoal(new GoalFollow(pvpTargetEntity, 2), true);
-      pvpInterval = setInterval(() => handlePvpTick(bot), 600);
-    }
-
-    if (cmdZone.includes('*stop')) { 
-      resetAllTimers(); 
-      bot.pathfinder.setGoal(null); 
-      bot.chat('Остановлено.'); 
+    if (lowerLine.includes('*stop')) {
+      if (pvpInterval) clearInterval(pvpInterval); 
+      if (customCycleInterval) clearInterval(customCycleInterval);
+      pvpInterval = null; customCycleInterval = null; currentCycleCommand = null; pvpTargetEntity = null;
+      bot.chat('Все действия остановлены.');
     }
   });
 
-  bot.on('kick', (reason) => { 
-    console.log(`[Система] Бота кикнули: ${reason}`);
-    resetAllTimers(); 
-    isBotActive = false; 
-    if (rlInterface) rlInterface.close(); 
-    setTimeout(showMenu, 5000); 
-  });
-
-  bot.on('end', () => { 
-    console.log('[Система] Соединение разорвано.');
-    resetAllTimers(); 
-    isBotActive = false; 
-    if (rlInterface) rlInterface.close(); 
-    setTimeout(showMenu, 5000); 
-  });
-
-  bot.on('error', (err) => console.error('[Ошибка]:', err.message));
+  bot.on('kick', () => { if (customCycleInterval) clearInterval(customCycleInterval); setTimeout(createBot, 15000); }); 
+  bot.on('end', () => { if (customCycleInterval) clearInterval(customCycleInterval); setTimeout(createBot, 15000); });
+  bot.on('error', (e) => console.error(e.message));
 }
-
-async function checkAndEquipTotem(bot) {
-  if (!bot.inventory || isEating || isEquipping || isToggleArmor) return;
-  const offHandItem = bot.inventory.slots[45]; 
-  if (offHandItem && offHandItem.name === 'totem_of_undying') return;
-
-  const totem = bot.inventory.items().find(i => i && i.name === 'totem_of_undying');
-  if (!totem) return;
-
-  isToggleArmor = true; 
-  try { await bot.equip(totem, 'off-hand'); } catch (err) {} 
-  isToggleArmor = false;
-}
-
-async function equipBestArmor(bot) {
-  if (!bot.inventory || isEquipping || isEating || isToggleArmor) return;
-  const armorTypes = ['helmet', 'chestplate', 'leggings', 'boots'];
-  const destinations = ['head', 'torso', 'legs', 'feet'];
-  const materialValues = { netherite: 5, diamond: 4, iron: 3, chainmail: 2, gold: 1, leather: 0 };
-
-  for (let index = 0; index < armorTypes.length; index++) {
-    const type = armorTypes[index];
-    const dest = destinations[index];
-
-    const items = bot.inventory.items().filter(item => {
-      if (!item || !item.name) return false; 
-      const cName = item.name.toLowerCase();
-      if (type === 'helmet') return cName.includes('helmet') || cName.includes('head');
-      if (type === 'chestplate') return cName.includes('chestplate') || cName.includes('chest');
+createBot();
