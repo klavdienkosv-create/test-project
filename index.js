@@ -21,7 +21,7 @@ function createBot() {
     bot.loadPlugin(pathfinder); bot.loadPlugin(collectBlock);
 
     bot.on('spawn', () => {
-        console.log(`[Система] Бот ${bot.username} зашел на server.`); isDeadNow = false;
+        console.log(`[Система] Бот ${bot.username} зашел на сервер.`); isDeadNow = false;
         setTimeout(() => { if (bot.entity) bot.chat('/games'); }, 4000);
         setTimeout(() => {
             if (bot.inventory && bot.inventory.items().length === 0) {
@@ -93,7 +93,6 @@ function createBot() {
         if (lowerLine.includes('*mine diamond')) { resetAllTimers(); bot.pathfinder.setGoal(null); startMiningDiamonds(); return; }
         if (lowerLine.includes('*mine emerald')) { resetAllTimers(); bot.pathfinder.setGoal(null); startMiningEmeralds(); return; }
 
-        // НОВАЯ КОМАНДА ДЛЯ СЛЕДОВАНИЯ ЗА ИГРОКОМ
         if (lowerLine.includes('*follow')) {
             resetAllTimers();
             const cmdIndex = lowerLine.indexOf('*follow');
@@ -113,14 +112,19 @@ function createBot() {
         }
 
         if (lowerLine.includes('*tp')) { resetAllTimers(); bot.chat(`/tpa ${activeOwner}`); return; }
+        
         if (lowerLine.includes('*cycle')) {
             if (customCycleInterval) clearInterval(customCycleInterval);
-            const match = clean.match(/\*c\s*y\s*c\s*l\s*e\s+(\d+)\s+(.+)$/i) || clean.match(/\*cycle\s+(\d+)\s+(.+)$/i); if (!match) return;
-            cycleSeconds = parseInt(match[1]); let targetCmd = match[2].trim(); currentCycleCommand = targetCmd;
+            const match = clean.match(/\*c\s*y\s*c\s*l\s*e\s+(\d+)\s+(.+)$/i) || clean.match(/\*cycle\s+(\d+)\s+(.+)$/i); 
+            if (!match) return;
+            cycleSeconds = parseInt(match[1]); 
+            let targetCmd = match[2].trim(); 
+            currentCycleCommand = targetCmd;
             bot.chat(`Цикл "${targetCmd}" каждые ${cycleSeconds} сек.`); bot.chat(targetCmd);
             customCycleInterval = setInterval(() => { if (!isDeadNow) bot.chat(targetCmd); }, cycleSeconds * 1000);
             return;
         }
+        
         if (lowerLine.includes('*kill')) {
             if (pvpInterval) clearInterval(pvpInterval);
             const cmdIndex = lowerLine.indexOf('*kill'); let raw = clean.substring(cmdIndex + 5).trim(); if (!raw) return;
